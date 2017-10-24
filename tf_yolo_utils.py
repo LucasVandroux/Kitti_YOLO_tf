@@ -1,26 +1,35 @@
 import tensorflow as tf
-from math import ceil, floor
 import numpy as np
-import time
+from math import ceil, floor    # To create the sets and batches              
+import time                     # To generate some random seeds
+import numbers                  # To test if a variable is a number
 
 # *** DATA ***
-def split_set(ids, repartition_perc, seed = '-1'):
+def split_random_set(ids, repartition_perc, seed = -1):
     """
     Split the list of ids between train, dev and test set.
     
     Argument:
     ids               -- numpy array of the ids of picture to split
-    repartition_perc  -- [train_set, dev_set, test_set] in % 
+    repartition_perc  -- [train_set_percentage, dev_set_percentage, test_set_percentage] in % 
     seed              -- positive number used as seed for the random function 
     
     Returns:
     train_set_ids, dev_set_ids, test_set_ids
     """
+    # if repartition_perc is an int, cast it to an array 
+    if isinstance(repartition_perc, numbers.Number) :
+        repartition_perc = np.array([repartition_perc])
     
     # test the inputs of the function
-    if len(repartition_perc) > 1 and len(repartition_perc) < 4 and not sum(repartition_perc) == 100 
-    or repartition_perc[0] < 1:
-        # TODO return Error
+    if (len(repartition_perc) > 1 and len(repartition_perc) < 4 and not sum(repartition_perc) == 100):
+        raise Exception('The sum of the percentages must be 100')
+        
+    if repartition_perc[0] < 1:
+        raise Exception('The train_set_percentage must be >0')
+    
+    if len(repartition_perc) > 3:
+        raise Exception('The repartition between sets must be of the form: [train_set_percentage, dev_set_percentage, test_set_percentage]')
     
     # Determine the size of the different sets
     len_list_ids = len(ids)
@@ -38,7 +47,10 @@ def split_set(ids, repartition_perc, seed = '-1'):
         test_set_size = 0
     
     # shuffle ids
-    np.random.seed(seed)
+    if seed > -1:
+        np.random.seed(seed)
+    else:
+        np.random.seed(int(time.time()))
     
     permutation = list(np.random.permutation(len_list_ids))
     shuffled_ids = ids[permutation]
@@ -48,12 +60,65 @@ def split_set(ids, repartition_perc, seed = '-1'):
     dev_set = shuffled_ids[train_set_size:(train_set_size + dev_set_size)]
     test_set = shuffled_ids[(train_set_size + dev_set_size):]
     
-    return [train_set, dev_set, test_set]
-    
-    
-    
+    return train_set, dev_set, test_set
 
-def load_training_batch(list_ids):
+def create_batches(ids, batch_size):
+    """
+    Split a set of ids in batches
+    
+    Arguments:
+    set_ids           -- array containing the list of ids to split in batches
+    batch_size        -- size of the batches to create
+    
+    Returns:
+    batches_ids  -- list of batches(aka array of ids)
+    """
+    
+    m = len(ids)
+    list_batches = []
+
+    # Partition set of IDs. Minus the end case.
+    num_complete_batches = math.floor(m/batch_size) # number of batches of size batch_size in your partitionning
+    for k in range(0, num_complete_batches):
+        batch_ids = ids[k * batch_size : k * batch_size + batch_size]
+        list_batches.append(batch_ids)
+    
+    # Handling the end case (last batch < batch_size)
+    if m % batch_size != 0:
+        batch_ids = ids[num_complete_batches * batch_size : m]
+        list_batches.append(batch_ids)
+    
+    return list_batches
+
+def prepare_dataset(ids, repartition_perc, batch_size, seed = False):
+    """
+    Split the array of ids between the different random sets composed of multiple batches
+    
+    Arguments:
+    ids               -- array containing the list of ids of the data
+    batch_size        -- size of the batches to create
+    repartition_perc  -- [train_set_percentage, dev_set_percentage, test_set_percentage] in % 
+    seed              -- positive number used as seed for the random function 
+    
+    Returns:
+    batches_train_set, batches_dev_set, batches_test_set
+    """
+    
+    # If the seed is not set
+    if not seed:
+        seed = int(time.time())
+    
+    # Randomize and split the initial set
+    train_set, dev_set, test_set = split_random_set(ids, repartition_perc, seed)
+    
+    # Create batches
+    batches_train_set = create_batches(train_set, batch_size)
+    batches_dev_set = create_batches(dev_set, batch_size)
+    batches_test_set = create_batches(test_set, batch_size)
+    
+    return batches_train_set, batches_dev_set, batches_test_set
+
+# def load_batch(ids):
 
 # Weights for either fully connected or convolutional layers of the network
 def weight_variable(shape):
