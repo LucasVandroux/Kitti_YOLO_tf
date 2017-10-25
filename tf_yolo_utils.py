@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from math import ceil, floor    # To create the sets and batches              
+import math                     # To create the sets and batches              
 import time                     # To generate some random seeds
 import numbers                  # To test if a variable is a number
 
@@ -131,19 +131,21 @@ def bias_variable(shape):
     return tf.Variable(initial)
 
 # Convolution typically used
-def conv2d(x, W):
-    return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
+def conv2d(x, W, input_strides):
+    return tf.nn.conv2d(x, W, strides=input_strides, padding='SAME')
 
 # Max pool to reduce to 1/4 of the input
 def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1],
                           strides=[1, 2, 2, 1], padding='SAME')
 
-# Actual layer used
-def conv_layer(input, shape):
+# Convolutional layer with strides and alpha adjustable
+def conv_layer(input, shape, strides = [1, 1, 1, 1], alpha = 0.1):
     W = weight_variable(shape)
     b = bias_variable([shape[3]])
-    return tf.nn.relu(conv2d(input, W) + b)
+    Z = conv2d(input, W, strides) + b
+    return tf.maximum(Z, alpha * Z)
+    
 
 # Layer without the ReLU part to be used at the end of the CNN
 def full_layer(input, size):
