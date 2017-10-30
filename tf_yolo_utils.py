@@ -4,6 +4,12 @@ import math                     # To create the sets and batches
 import time                     # To generate some random seeds
 import numbers                  # To test if a variable is a number
 
+# List of all the possible classes
+LIST_CLASSES = ['Car', 'Van', 'Truck',
+                'Pedestrian', 'Person_sitting', 
+                'Cyclist', 'Tram', 'Misc', 
+                'DontCare']
+
 # *** DATA ***
 def split_random_set(ids, repartition_perc, seed = -1):
     """
@@ -119,6 +125,259 @@ def prepare_dataset(ids, repartition_perc, batch_size, seed = False):
     return batches_train_set, batches_dev_set, batches_test_set
 
 # def load_batch(ids):
+
+# *** CONVERSION ***
+
+def convert_labels_to_array(labels, S, B, im_shape, list_classes = LIST_CLASSES):
+    """
+    Convert the dictionary to an array similar to the output of the YOLO CNN
+    
+    Argument:
+    labels        -- Dictionary containing information about boxes
+    S             -- Number of cell grid per dimension
+    B             -- Number of boxes per cell grid
+    im_shape      -- [image_height, image_width]
+    list_classes  -- List of all the classes possible (use to create the one-hot vector)
+    
+    Returns:
+    arr_labels    -- Array of length (S * S * (B * 5 + C)) containing the labels
+    elems_discard -- List containing discarded elements [x_cell, y_cell, box_center_x_norm, 
+                     box_center_y_norm, box_width_norm, box_height_norm, box_IoU, class_index]
+    """
+    # Get the number of classes from the list of classes
+    C = len(list_classes)
+    
+    # Get cells shape from the image shape
+    cell_width = im_shape[1] / S
+    cell_height = im_shape[0] / S
+    
+    # Create the empty numpy array to contain all the labels
+    arr_labels = np.zeros(S * S * (B * 5 + len(list_classes)))
+    
+    # Create an empty list to store all the object discarded
+    elems_discard = []
+    
+    for label in labels:
+        # --- EXPORT DATA ---
+
+        # Extract from Paper:
+        # "Each bounding box consists of 5 predictions: x, y, w, h,
+        # and confidence. The (x, y) coordinates represent the center
+        # of the box relative to the bounds of the grid cell. The width
+        # and height are predicted relative to the whole image."
+
+        # *** POSITION DATA ***
+
+        # Width and Height of the box in pixel size
+        box_width = label['bbox']['x_max'] - label['bbox']['x_min']  
+        box_height = label['bbox']['y_max'] - label['bbox']['y_min']
+
+        # Normalize the width and height of the box
+        box_width_norm = box_width / im_shape[1]
+        box_height_norm = box_height / im_shape[0]
+
+        # Center of the box in pixel coordinates
+        x_center = (label['bbox']['x_min'] + (box_width/2))
+        y_center = (label['bbox']['y_min'] + (box_height/2))
+
+        # Coordinates of the cell the center of the object is in (from 0 to ...)
+        x_cell = math.floor(x_center / im_shape[1] * S)
+        y_cell = math.floor(y_center / im_shape[0] * S)
+
+        # Coordinates of the center of the box relative to the box
+        box_center_x_norm = (x_center - x_cell * cell_width) / cell_width
+        box_center_y_norm = (y_center - y_cell * cell_height) / cell_height
+
+        box_IoU = 1   # As it is the ground truth
+
+        box_info = [box_center_x_norm, box_center_y_norm,
+                    box_width_norm, box_height_norm, box_IoU]
+
+        # *** CLASS DATA ***
+
+        class_proba = np.zeros(len(list_classes))
+
+        index_class = list_classes.index(label['type'])
+
+        class_proba[index_class] = 1
+
+        # --- ADD DATA ---
+        # Add the label to the array of labels
+
+        # Extract the grid cell data and the different info
+        idx_start = y_cell * S * (B * 5 + C) + x_cell * (B * 5 + C)
+        idx_end = idx_start + (B * 5 + C)
+        cell_data = arr_labels[idx_start : idx_end]
+
+        # Extract objects and class probabilities
+        boxes_info = cell_data[:-C].reshape((B,-1))
+        cell_class_proba = cell_data[-C :]
+
+        # If the cell is empty
+        if not cell_class_proba.any():
+            # Add the box in the first position
+            boxes_info[0][:] = box_info
+            # Add the class probabilities
+            cell_class_proba = class_proba
+
+        else:
+            # Compute area of the boxes
+            box_area = np.prod(box_info[2:4])
+            
+            # Create a boolean vector to compare all the boxes area
+            box_bigger_than_boxes = np.zeros(B) # Initialize Boolean vector
+            
+            for x in range(B):
+                current_box_area = np.prod(boxes_info[x][2:4])
+                box_bigger_than_boxes[x] = box_area > current_box_area
+
+            # Compare the classes
+            same_class = np.array_equal(class_proba, cell_class_proba)
+                
+            is_class_misc_or_dontcare = np.argmax(class_proba) > 6
+
+            # The object is the same class as the object already inside
+            if same_class:
+                insert_id = np.argmax(box_bigger_than_boxes) if box_bigger_than_boxes.any() else B
+                boxes_info = np.insert(boxes_info, insert_id, box_info, axis=0)
+                
+                # Get the last object which is going to be discarded
+                if boxes_info[-1].any():
+                    elems_discard.append([x_cell, y_cell] + boxes_info[-1].tolist() + [index_class])
+                
+                # Discard the last entry of the boxes_info to only keep B objects
+                boxes_info = boxes_info[:B]
+
+            elif (not same_class) and box_bigger_than_boxes[0] and not is_class_misc_or_dontcare:
+                # Get the elements in the list before they get discarded
+                for i in range(B):
+                    if boxes_info[i].any():
+                        elems_discard.append([x_cell, y_cell] + boxes_info[i].tolist() + [index_class])
+                
+                # If different class and box bigger than box_1
+                boxes_info *= 0
+                boxes_info[0] = box_info
+                cell_class_proba = class_proba
+            
+            else:
+                elems_discard.append([x_cell, y_cell] + box_info + [index_class])
+
+        # Create new cell_data
+        new_cell_data = np.concatenate((boxes_info.flatten(), cell_class_proba))
+
+        # Insert new data in the cell array
+        arr_labels[idx_start : idx_end] = new_cell_data 
+        
+    return arr_labels, elems_discard
+
+def create_box_info_from_arr(box_info, box_type, box_type_proba, im_shape, S, cell_coord):
+    """
+    Create the dictionary from the info given
+    
+    Argument:
+    box_info          -- [x_center_norm, y_center_norm, width_box_norm, height_box_norm, confidence]
+    box_type          -- String containing the name of the type (e.g. 'Car')
+    box_type_proba    -- Probability of the type
+    im_shape          -- [image_height, image_width]
+    S                 -- Number of cell grid per dimension
+    cell_coord.       -- [cell_x, cell_y]
+    
+    Returns:
+    Return dictionary containing {'bbox', 'type', 'score'}
+    """
+    # Get cells shape from the image shape
+    cell_width = im_shape[1] / S
+    cell_height = im_shape[0] / S
+    
+    # Get box shape
+    box_width = box_info[2] * im_shape[1]
+    box_height = box_info[3] * im_shape[0]
+    
+    # Get coordinates of the box's center
+    box_center_x = (box_info[0] * cell_width) + (cell_coord[0] * cell_width)
+    box_center_y = (box_info[1] * cell_height) + (cell_coord[1] * cell_height)
+    
+    # Get bbox values
+    x_min = round(box_center_x - box_width/2, 2)
+    x_max = round(box_center_x + box_width/2, 2)
+    
+    y_min = round(box_center_y - box_height/2, 2)
+    y_max = round(box_center_y + box_height/2, 2)
+    
+    # Create the bbox dictionary
+    bbox = {'x_max': x_max,
+            'x_min': x_min,
+            'y_max': y_max,
+            'y_min': y_min}
+    
+    # Compute the score
+    IoU = box_info[4]
+    score = IoU * box_type_proba
+    
+    # Create final dictionary
+    box = {'bbox': bbox,
+           'type': box_type,
+           'score': score}
+    
+    return box
+
+def convert_array_to_labels(arr_labels, S, B, im_shape, list_classes = LIST_CLASSES, data_per_obj = 5):
+    """
+    Convert an array of labels into a dictionary of labels
+    
+    Argument:
+    arr_labels    -- array containing the labels
+    S             -- Number of cell grid per dimension
+    B             -- Number of boxes per cell grid
+    im_shape      -- [image_height, image_width]
+    list_classes  -- List of all the classes possible (use to create the one-hot vector)
+    data_per_obj  -- Number of data points per objects (5 in the original implementation of YOLO)
+    
+    Returns:
+    Return list of dictionaries containing the labels
+    """
+    # Get the number of classes from the list of classes
+    C = len(list_classes)
+    
+    # Reshape the array to correspond to the grid shape
+    arr_labels = arr_labels.reshape((S, S, data_per_obj*B+C))
+
+    # Create list of labels
+
+    labels = []
+
+    for cell_x in range(S):
+        for cell_y in range(S):
+            cell_grid = arr_labels[cell_y][cell_x]
+
+            if cell_grid.any():
+                # Extract the info from the cell
+                
+                # -- TODO --
+                # separate class_proba from boxes_info
+                # Then use reshape on boxes info to separate 
+                # them and be able to use iteration on the list
+                
+                boxes_info = cell_grid[:-C].reshape((B,-1))
+                class_proba = cell_grid[-C:]
+
+                # Find the type of the objects
+                cell_type = list_classes[np.argmax(class_proba)]
+                cell_type_proba = np.max(class_proba)
+                
+                for x in range(B):
+                    if boxes_info[x].any():
+                        labels.append(
+                            create_box_info_from_arr(box_info = boxes_info[x],
+                                                     box_type = cell_type,
+                                                     box_type_proba = cell_type_proba,
+                                                     im_shape = im_shape,
+                                                     S = S,
+                                                     cell_coord = [cell_x, cell_y])
+                        )    
+    return labels
+
+# *** LAYERS ***
 
 # Weights for either fully connected or convolutional layers of the network
 def weight_variable(shape):
