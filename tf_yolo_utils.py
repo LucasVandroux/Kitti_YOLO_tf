@@ -381,17 +381,17 @@ def convert_array_to_labels(arr_labels, S, B, im_shape, list_classes = LIST_CLAS
 
 # Weights for either fully connected or convolutional layers of the network
 def weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
+    initial = tf.random_normal(shape, stddev=0.35, dtype = tf.float32)
     return tf.Variable(initial)
 
 # Bias elements in either a fully connected or a convolutional layer
 def bias_variable(shape):
-    initial = tf.constant(0.1, shape=shape)
+    initial = tf.random_normal(shape, stddev = 0.35, dtype = tf.float32)
     return tf.Variable(initial)
 
 # Convolution typically used
 def conv2d(x, W, input_strides):
-    return tf.nn.conv2d(x, W, strides=input_strides, padding='SAME')
+    return tf.nn.conv2d(x, W, strides=input_strides, padding='VALID')
 
 # Max pool to reduce to 1/4 of the input
 def max_pool_2x2(x):
@@ -399,10 +399,18 @@ def max_pool_2x2(x):
                           strides=[1, 2, 2, 1], padding='SAME')
 
 # Convolutional layer with strides and alpha adjustable
-def conv_layer(input, shape, strides = [1, 1, 1, 1], alpha = 0.1):
+def conv_layer(input_layer, shape, strides = [1, 1, 1, 1], alpha = 0.1):
     W = weight_variable(shape)
     b = bias_variable([shape[3]])
-    Z = conv2d(input, W, strides) + b
+    
+    # Reproducing explicit padding used by darknet
+    # https://github.com/johnwlambert/YoloTensorFlow229/blob/1bf43059b37c8a1ed4be0fa0bb2f5d79ba881fb3/yolo.py#L107
+    pad = [int(shape[0]/2), int(shape[1]/2)]
+    input_layer_padded = tf.pad(input_layer, 
+                                paddings = [[0, 0], [pad[0], pad[0]], 
+                                            [pad[1], pad[1]], [0, 0]])
+    
+    Z = conv2d(input_layer_padded, W, strides) + b
     return tf.maximum(Z, alpha * Z)
     
 
