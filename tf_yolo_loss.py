@@ -53,7 +53,8 @@ def compute_YOLOv1_loss(predictions, ground_truth, S, B, C, LAMBDA_COORD = 5, LA
     true_confidence = tf.tile(tf.reshape(true_boxes_info[:, :, :, 4], 
                                          [-1, S*S, 1, 1]), [1, 1, B, 1])          # -> [BATCH_SIZE, S*S, B, 1]
     
-    batch_size = int(true_reshape_.shape[0])
+    # When initialising the NN, batch_size = None
+    batch_size = true_reshape_.get_shape().as_list()[0]
     
     # ___DEBUG___
     #print('batch_size: ' + str(batch_size))
