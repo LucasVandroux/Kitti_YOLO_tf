@@ -105,7 +105,7 @@ def compute_YOLOv1_loss(predictions, ground_truth, S, B, C, LAMBDA_COORD = 5, LA
     
     # === BOX LOSS === 
     # Zeroes out the predictions in empty cells
-    pred_box_size = tf.multiply(pred_box_size, true_confidence)
+    pred_box_size = tf.maximum(tf.multiply(pred_box_size, true_confidence), 0) # Remove the negative dimensions
     pred_center_coord = tf.multiply(pred_center_coord, true_confidence)
     
     # -- Compute IoU ---
