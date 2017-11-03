@@ -4,6 +4,11 @@ import math                     # To create the sets and batches
 import time                     # To generate some random seeds
 import numbers                  # To test if a variable is a number
 
+# Import kitti_utils from a different project
+import sys
+sys.path.insert(0, '/data2/lucas/Projects/Kitti2012')
+from kitti_utils import *    # fcts. to manage the kitti dataset
+
 # List of all the possible classes
 LIST_CLASSES = ['Car', 'Van', 'Truck',
                 'Pedestrian', 'Person_sitting', 
@@ -123,8 +128,6 @@ def prepare_dataset(ids, repartition_perc, batch_size, seed = False):
     batches_test_set = create_batches(test_set, batch_size)
     
     return batches_train_set, batches_dev_set, batches_test_set
-
-# def load_batch(ids):
 
 # *** CONVERSION ***
 
@@ -376,6 +379,43 @@ def convert_array_to_labels(arr_labels, S, B, im_shape, list_classes = LIST_CLAS
                                                      cell_coord = [cell_x, cell_y])
                         )    
     return labels
+
+# *** IMPORT BATCH ***
+def load_batch_for_training(ids, im_size, S, B, list_classes = LIST_CLASSES):
+    """
+    Load a batch of training data (image + labels)
+    
+    Arguments:
+    ids               -- array containing the list of ids of the data
+    im_size           -- size to which the input images need to be resized
+    S                 -- Number of cell grid per dimension
+    B                 -- Number of boxes per cell grid
+    list_classes      -- List of all the classes possible
+    
+    Returns:
+    batch_im [batch_size, im_size, im_size, 3], batch_labels [batch_size, S*S*(5*B+C)]
+    """
+    
+    batch_size = len(ids)
+    C = len(list_classes)
+    
+    batch_input = np.zeros((batch_size, im_size, im_size, 3))
+    batch_labels = np.zeros((batch_size, S*S*(5*B+C)))
+    
+    for i in range(batch_size):
+        # Import image
+        im = import_im(ids[i], 'train')
+        
+        # Import labels
+        labels = import_labels(ids[i], 'train')
+        
+        arr_labels, _ = convert_labels_to_array(labels, S, B, im.shape, list_classes)
+        batch_labels[i, :] = arr_labels
+        
+        # Resize the image and add it to the batch_input
+        batch_input[i, :, :, :] = misc.imresize(im, (im_size, im_size, 3))
+        
+    return [batch_input, batch_labels]
 
 # *** LAYERS ***
 
