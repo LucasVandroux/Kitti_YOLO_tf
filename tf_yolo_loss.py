@@ -33,6 +33,16 @@ def compute_YOLOv1_loss(predictions, ground_truth, S, B, C, LAMBDA_COORD = 5, LA
     total_loss        -- [BATCH_SIZE,]
     
     ''' 
+    # ___DEBUG___
+    #print('predictions' + ' ' + str(predictions.shape) + ':')
+    #print('ground_truth' + ' ' + str(ground_truth.shape) + ':')
+    #print(S)
+    #print(B)
+    #print(C)
+    #print(LAMBDA_COORD)
+    #print(LAMBDA_NOOBJ)
+    # ___DEBUG___
+    
     # Make sure the inputs are cast to the proper type
     predictions = tf.cast(predictions, dtype=tf.float64)
     ground_truth = tf.cast(ground_truth, dtype=tf.float64)
@@ -149,7 +159,7 @@ def compute_YOLOv1_loss(predictions, ground_truth, S, B, C, LAMBDA_COORD = 5, LA
 
     # --- Box Size ---    
     sqrt_true_box_size = tf.sqrt(true_box_size)
-    sqrt_pred_box_size = tf.sqrt(pred_box_size)
+    sqrt_pred_box_size = tf.sqrt(tf.maximum(pred_box_size, 0)) # Use tf.maximumm to avoid doing sqrt on a negative value
     
     box_size_loss = tf.reduce_sum(tf.square(sqrt_pred_box_size - sqrt_true_box_size), 3)
 
@@ -161,6 +171,8 @@ def compute_YOLOv1_loss(predictions, ground_truth, S, B, C, LAMBDA_COORD = 5, LA
     
     # ___DEBUG___
     #print_tensor('center_coord_loss', center_coord_loss)
+    #print_tensor('sqrt_true_box_size', sqrt_true_box_size)
+    #print_tensor('sqrt_pred_box_size', sqrt_pred_box_size)
     #print_tensor('box_size_loss', box_size_loss)
     #print_tensor('box_loss', box_loss)
     # ___DEBUG___
